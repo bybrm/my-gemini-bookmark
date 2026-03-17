@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini 資料夾精靈",
+  "version": "1.0",
+  "description": "專屬於 Gemini 的高隱私對話書籤與資料夾管理工具，採用 Shadow DOM 隔離技術，資料完全本機儲存",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://gemini.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "切換 Gemini 資料夾",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["panel.css"],
+      "matches": ["https://gemini.google.com/*"]
+    }
+  ]
+}
