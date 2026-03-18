@@ -50,7 +50,12 @@
         <div class="modal-box">
           <div class="modal-title"></div>
           <div class="modal-body"></div>
-          <input class="modal-input" type="text"/>
+          <input class="modal-input" type="text" style="display:none"/>
+          <div class="modal-tags-container hidden">
+            <div class="modal-tags-list"></div>
+            <input class="modal-tag-input" type="text" placeholder="輸入標籤 (按 Enter)"/>
+          </div>
+          <div class="suggested-tags-wrapper hidden"></div>
           <div class="modal-actions">
             <button class="btn-modal-cancel">取消</button>
             <button class="btn-modal-confirm">確認</button>
@@ -70,17 +75,34 @@
       <!-- 首次設定頁 -->
       <div class="setup-page hidden">
         <div class="setup-icon">📚</div>
-        <div class="setup-title">選擇同步資料夾</div>
-        <div class="setup-desc">
-          選擇一個 Chrome 書籤資料夾作為資料庫<br>
-          所有書籤將透過 Google 帳號自動同步到其他裝置
+        <div class="setup-title">資料夾精靈設定</div>
+        <div class="setup-desc" style="margin-bottom: 20px;">
+          請選擇或建立同步資料夾，並設定標籤顏色配置
         </div>
-        <div class="setup-folder-list"></div>
-        <div class="setup-divider">─── 或建立新資料夾 ───</div>
-        <div class="setup-create-row">
-          <input class="setup-new-input" type="text" placeholder="新資料夾名稱…" maxlength="50"/>
-          <button class="btn-create-root">建立</button>
-        </div>
+
+        <details class="setup-accordion" open>
+          <summary>📁 選擇同步資料夾</summary>
+          <div class="accordion-content">
+            <div class="setup-folder-list"></div>
+          </div>
+        </details>
+        
+        <details class="setup-accordion">
+          <summary>➕ 建立新資料夾</summary>
+          <div class="accordion-content">
+            <div class="setup-create-row" style="margin-top: 8px;">
+              <input class="setup-new-input" type="text" placeholder="新資料夾名稱…" maxlength="50"/>
+              <button class="btn-create-root">建立</button>
+            </div>
+          </div>
+        </details>
+        
+        <details class="setup-accordion">
+          <summary>🎨 標籤顏色設定</summary>
+          <div class="accordion-content">
+            <div class="setup-tags-container"></div>
+          </div>
+        </details>
       </div>
 
       <!-- 主面板 -->
@@ -130,6 +152,40 @@
   let expandedNodes = new Set();
   /** @type {string|null} 目前選中的資料夾 ID */
   let selectedFolderId = null;
+  /** @type {Object} 標籤顏色映射表 { "#標籤": "索引或#hex" } */
+  let tagColorMap = {};
+
+  // 1. 精緻對色色盤 (仿 Bootstrap Pastel)
+  const TAG_PALETTE = [
+    { bg: "#cce5ff", text: "#004085" }, // Primary (淺藍)
+    { bg: "#e2e3e5", text: "#383d41" }, // Secondary (灰)
+    { bg: "#d4edda", text: "#155724" }, // Success (綠)
+    { bg: "#f8d7da", text: "#721c24" }, // Danger (紅)
+    { bg: "#fff3cd", text: "#856404" }, // Warning (黃)
+    { bg: "#d1ecf1", text: "#0c5460" }, // Info (青)
+    { bg: "#eaddf6", text: "#4a148c" }, // Purple (紫)
+    { bg: "#fce4ec", text: "#880e4f" }  // Pink (粉)
+  ];
+
+  // 2. 取色輔助函式
+  function getTagStyle(tagWithHash) {
+    if (tagColorMap && tagColorMap[tagWithHash]) {
+      const val = tagColorMap[tagWithHash];
+      if (/^\d+$/.test(val) && TAG_PALETTE[parseInt(val, 10)]) {
+        return TAG_PALETTE[parseInt(val, 10)];
+      }
+      return { bg: val, text: "#ffffff" }; 
+    }
+
+    // 當找不到定義時，使用文字 Hash 自動產生穩定的預設色
+    let hash = 0;
+    for (let i = 0; i < tagWithHash.length; i++) {
+       hash = tagWithHash.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % TAG_PALETTE.length;
+    return TAG_PALETTE[index];
+  }
+
   /** @type {boolean} 面板是否可見 */
   let isPanelVisible = false;
   /** @type {string} 搜尋關鍵字 */
@@ -210,8 +266,37 @@
 
   /** 顯示資料夾選擇設定頁 */
   async function showSetupPage() {
-    q(".setup-page").classList.remove("hidden");
+    const setupPage = q(".setup-page");
+    setupPage.classList.remove("hidden");
     q(".main-panel").classList.add("hidden");
+
+    // 若原本已有根資料夾，隱藏大 Icon 並加上明顯的「返回」按鈕
+    const setupTitleEl = q(".setup-title");
+    const setupIconEl = q(".setup-icon");
+    
+    if (rootFolderId) {
+      if (setupIconEl) setupIconEl.style.display = "none";
+      if (!q(".btn-setup-back-wrap")) {
+        const wrap = document.createElement("div");
+        wrap.className = "btn-setup-back-wrap";
+        wrap.style.cssText = "display: flex; justify-content: flex-start; width: 100%; margin-bottom: 20px;";
+        
+        const backBtn = document.createElement("button");
+        backBtn.className = "btn-setup-back";
+        backBtn.innerHTML = "<span>←</span> <span>返回書籤清單</span>";
+        backBtn.style.cssText = "display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13.5px; font-weight: 500; color: #ffffff; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; cursor: pointer; transition: all 0.2s;";
+        backBtn.onmouseover = () => backBtn.style.background = "rgba(255,255,255,0.25)";
+        backBtn.onmouseout = () => backBtn.style.background = "rgba(255,255,255,0.15)";
+        
+        backBtn.addEventListener("click", () => showMainPanel());
+        wrap.appendChild(backBtn);
+        setupTitleEl.parentNode.insertBefore(wrap, setupTitleEl);
+      }
+    } else {
+      if (setupIconEl) setupIconEl.style.display = "block";
+      const wrap = q(".btn-setup-back-wrap");
+      if (wrap) wrap.remove();
+    }
 
     const listEl = q(".setup-folder-list");
     listEl.innerHTML = `<div style="padding:12px;color:var(--text-muted);font-size:13px;">載入中…</div>`;
@@ -280,6 +365,96 @@
 
     createBtn.addEventListener("click", doCreate);
     createInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doCreate(); });
+
+    // ============================================
+    // 標籤顏色設定區塊 (附加到 setup-tags-container)
+    // ============================================
+    const tagsContainer = q(".setup-tags-container");
+    tagsContainer.innerHTML = `
+      <div class="tag-settings-list" style="margin-top: 8px; max-height: 180px; overflow-y: auto; display: grid; gap: 8px;">載入中...</div>
+      <button class="btn-create-root btn-save-colors" style="margin-top: 14px; width: 100%;">💾 儲存所有標籤顏色</button>
+    `;
+
+    // 收集現存所有的不重複標籤
+    const allTags = new Set();
+    const extractTags = (nodes) => {
+      nodes.forEach(n => {
+        if (n.url) {
+          (n.title.match(/#[^\s]+/g) || []).forEach(t => allTags.add(t));
+        }
+        if (n.children) extractTags(n.children);
+      });
+    };
+    extractTags(topLevel);
+
+    const tagListEl = q(".tag-settings-list");
+    tagListEl.innerHTML = "";
+    
+    if (allTags.size === 0) {
+      tagListEl.innerHTML = `<div style="color:var(--text-muted); font-size:12px;">尚無任何標籤</div>`;
+    } else {
+      Array.from(allTags).forEach(tag => {
+        const row = document.createElement("div");
+        row.style.display = "flex"; row.style.alignItems = "center"; row.style.justifyContent = "space-between";
+        const style = getTagStyle(tag);
+        
+        row.innerHTML = `
+          <span style="font-size: 13.5px; font-weight: 500; font-family: var(--font); color: var(--text-primary); letter-spacing: 0.3px; max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(tag)}</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button class="btn-random-color" data-tag="${tag}" title="隨機產生顏色"
+              style="background:var(--item-hover); border:1px solid var(--panel-border); border-radius:6px;
+                     color:var(--text-secondary); cursor:pointer; font-size:14px; padding:2px 6px;
+                     line-height:1.6; transition:all 0.2s;">🎲</button>
+            <input type="color" class="tag-color-input" data-tag="${tag}" value="${style.bg}"
+              style="border:none; border-radius:4px; padding:0; width:36px; height:28px; cursor:pointer; background:transparent;"/>
+          </div>
+        `;
+        tagListEl.appendChild(row);
+        
+        // 綁定隨機按鈕：產生隨機顏色並同步更新 color picker
+        row.querySelector(".btn-random-color").addEventListener("click", () => {
+          const hue = Math.floor(Math.random() * 360);
+          const sat = Math.floor(50 + Math.random() * 30); // 50-80%
+          const lig = Math.floor(30 + Math.random() * 25); // 30-55%
+          // 轉換 HSL → HEX
+          const h = hue / 360, s = sat / 100, l = lig / 100;
+          const q2 = l < 0.5 ? l * (1 + s) : l + s - l * s;
+          const p2 = 2 * l - q2;
+          const toHex = (t) => {
+            const c = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+            let val;
+            if (c < 1/6) val = p2 + (q2 - p2) * 6 * c;
+            else if (c < 1/2) val = q2;
+            else if (c < 2/3) val = p2 + (q2 - p2) * (2/3 - c) * 6;
+            else val = p2;
+            return Math.round(val * 255).toString(16).padStart(2, "0");
+          };
+          const hex = `#${toHex(h + 1/3)}${toHex(h)}${toHex(h - 1/3)}`;
+          row.querySelector(".tag-color-input").value = hex;
+        });
+      });
+    }
+
+    q(".btn-save-colors").addEventListener("click", () => {
+      let changed = false;
+      tagListEl.querySelectorAll(".tag-color-input").forEach(input => {
+        const tag = input.dataset.tag;
+        // 只有被手動改變過的才覆寫
+        if (input.value !== input.getAttribute("value")) {
+          if (!tagColorMap) tagColorMap = {};
+          tagColorMap[tag] = input.value;
+          changed = true;
+        }
+      });
+      if (changed) {
+        chrome.runtime.sendMessage({ action: "setTagColorMap", map: tagColorMap }, () => {
+          showToast("顏色儲存成功 ✓");
+          if (rootFolderId) renderFromBookmarks();
+        });
+      } else {
+        showToast("沒有變更");
+      }
+    });
   }
 
   /** 顯示主面板，從 Chrome 書籤載入資料 */
@@ -425,23 +600,42 @@
   }
 
   /**
-   * 渲染單一書籤節點
+   * 渲染單一書籤節點 (支援 Title Hack 標籤)
    * @param {Object} node - Chrome 書籤節點（有 url）
    * @param {string} parentId - 父資料夾 ID
    * @param {number} indent - 左縮排 px
    */
   function renderBookmarkNode(node, parentId, indent = 28) {
+    const rawTitle = node.title || node.url || "";
+    // 擷取所有開頭為 # 且中間無空白的標籤
+    const tags = rawTitle.match(/#[^\s]+/g) || [];
+    // 過濾掉標籤後的原始乾淨標題
+    const cleanTitle = rawTitle.replace(/#[^\s]+/g, "").trim() || rawTitle;
+
+    const tagsHtml = tags.length > 0 ? 
+      `<div class="bookmark-tags-wrapper">
+         ${tags.map(t => {
+           const style = getTagStyle(t);
+           return `<span class="bookmark-tag" data-tag="${t}" style="background-color: ${style.bg}; color: ${style.text}; font-weight: 500;">${esc(t)}</span>`;
+         }).join("")}
+       </div>` : "";
+
     return `
       <div class="bookmark-item"
            data-node-id="${node.id}"
            data-parent-id="${parentId}"
+           data-raw-title="${esc(rawTitle)}"
            data-url="${esc(node.url || "")}"
            title="${esc(node.url || "")}"
            draggable="true"
-           style="padding:6px 8px 6px ${indent}px">
-        <span class="bookmark-favicon">💬</span>
-        <span class="bookmark-title">${esc(node.title || node.url || "")}</span>
-        <div class="bookmark-actions">
+           style="padding:6px 8px 6px ${indent}px; align-items:flex-start;">
+        <span class="bookmark-favicon" style="margin-top:2px;">💬</span>
+        <div style="flex:1; overflow:hidden;">
+          <div class="bookmark-title">${esc(cleanTitle)}</div>
+          ${tagsHtml}
+        </div>
+        <div class="bookmark-actions" style="margin-top:2px;">
+          <button class="btn-icon btn-edit-bookmark" title="編輯標題與標籤">✏️</button>
           <button class="btn-icon danger btn-delete-bookmark" title="刪除">✕</button>
         </div>
       </div>`;
@@ -857,6 +1051,30 @@
 
   /** 動態事件（每次 renderTree 後呼叫）*/
   function bindDynamicEvents() {
+    // 編輯書籤事件
+    shadow.querySelectorAll(".btn-edit-bookmark").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const item = btn.closest(".bookmark-item");
+        const id = item.dataset.nodeId;
+        const rawTitle = item.dataset.rawTitle;
+        if (id) showEditBookmarkModal(id, rawTitle || "");
+      });
+    });
+
+    // 點選標籤過濾
+    shadow.querySelectorAll(".bookmark-tag").forEach((tagEl) => {
+      tagEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const searchInput = q(".search-input");
+        if (searchInput) {
+          searchInput.value = tagEl.dataset.tag;
+          searchQuery = tagEl.dataset.tag.toLowerCase(); 
+          renderFromBookmarks();
+        }
+      });
+    });
+
     // 點擊資料夾 (選取 + 展開/收合)
     shadow.querySelectorAll(".folder-header").forEach((header) => {
       header.addEventListener("click", (e) => {
@@ -1034,6 +1252,203 @@
     });
   }
 
+  /**
+   * 彈出對話框：編輯書籤標題與現代化標籤
+   */
+  function showEditBookmarkModal(nodeId, rawTitle) {
+    const modal = q(".modal-overlay");
+    const container = q(".modal-tags-container");
+    
+    // 1. 初始化資料：取出尚未包含 # 的純標籤文字
+    let tempTags = (rawTitle.match(/#[^\s]+/g) || []).map(t => t.substring(1));
+    const cleanTitle = rawTitle.replace(/#[^\s]+/g, "").trim() || rawTitle;
+
+    q(".modal-title").textContent = "編輯書籤";
+    
+    const body = q(".modal-body");
+    body.innerHTML = `
+      <label class="modal-label">對話標題</label>
+      <input class="modal-input edit-bm-title" type="text" placeholder="對話標題" value="${esc(cleanTitle)}" />
+      
+      <label class="modal-label" style="margin-top: 16px;">標籤 (以空格分隔)</label>
+      <div class="tag-input-container">
+        <div class="tag-pills-area"></div>
+        <input class="tag-ghost-input" type="text" placeholder="輸入標籤 (按 Enter 建立)"/>
+      </div>
+    `;
+
+    const titleInput = body.querySelector(".edit-bm-title");
+    const tagsListEl = body.querySelector(".tag-pills-area");
+    const tagInput = body.querySelector(".tag-ghost-input");
+    const inputContainer = body.querySelector(".tag-input-container");
+    
+    // 隱藏原本模版中的舊生輸入框與容器，避免畫面重複
+    const originalInput = q(".modal-input");
+    if (originalInput && originalInput !== titleInput) {
+      originalInput.style.display = "none";
+    }
+    
+    inputContainer.addEventListener("click", () => tagInput.focus());
+    const suggestedTagsWrapper = q(".suggested-tags-wrapper");
+    // 不要打開舊版的 container (modal-tags-container)
+    if (container) container.classList.add("hidden");
+
+    // 2. 負責渲染藥丸的函式
+    const renderModalTags = () => {
+      tagsListEl.innerHTML = tempTags.map((tag, idx) => {
+        const style = getTagStyle("#" + tag);
+        return `
+          <div class="tag-pill" style="background:${style.bg}; color:${style.text};">
+            ${esc(tag)}
+            <span class="btn-remove-tag" data-idx="${idx}">✕</span>
+          </div>
+        `;
+      }).join("");
+
+      // 綁定 ✕ 刪除按鈕
+      tagsListEl.querySelectorAll(".btn-remove-tag").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          const index = parseInt(e.target.dataset.idx, 10);
+          tempTags.splice(index, 1);
+          renderModalTags();
+        });
+      });
+
+      // 渲染推薦標籤 (從 tagColorMap 中過濾掉已經在這個書籤的)
+      if (tagColorMap && Object.keys(tagColorMap).length > 0) {
+        const availableTags = Object.keys(tagColorMap)
+          .map(k => k.replace(/^#/, ""))
+          .filter(t => !tempTags.includes(t));
+        
+        if (availableTags.length > 0) {
+          suggestedTagsWrapper.innerHTML = `
+            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px;">歷史標籤</div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              ${availableTags.map(tag => {
+                const style = getTagStyle("#" + tag);
+                return `<span class="suggested-tag-pill" data-tag="${esc(tag)}" style="background:${style.bg}; color:${style.text}; font-size: 11px; padding: 2px 6px; border-radius: 10px; cursor: pointer; transition: opacity 0.2s;">+ ${esc(tag)}</span>`;
+              }).join("")}
+            </div>
+          `;
+          suggestedTagsWrapper.classList.remove("hidden");
+          
+          suggestedTagsWrapper.querySelectorAll(".suggested-tag-pill").forEach(pill => {
+            pill.addEventListener("click", (e) => {
+              const tagToAdd = e.target.dataset.tag;
+              if (tagToAdd && !tempTags.includes(tagToAdd)) {
+                tempTags.push(tagToAdd);
+                renderModalTags();
+              }
+            });
+          });
+        } else {
+          suggestedTagsWrapper.classList.add("hidden");
+        }
+      } else {
+        suggestedTagsWrapper.classList.add("hidden");
+      }
+    };
+    renderModalTags();
+
+    // 3. 監聽 Tag Input 的 Enter 與 逗號
+    const onTagKeydown = (e) => {
+      // 避免中文輸入法組字時干擾，檢查 isComposing
+      if (e.isComposing) return;
+      
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        // 取得內容，去除空白並強制濾掉最前面的 #
+        let newTag = e.target.value.trim().replace(/^#+/, "");
+        if (newTag && !tempTags.includes(newTag)) {
+          tempTags.push(newTag);
+          e.target.value = "";
+          renderModalTags();
+        }
+      }
+      // 防錯機制：如果使用者打出 #，自動阻止
+      if (e.key === "#") { e.preventDefault(); }
+    };
+    
+    // 每次呼叫時先清除上次的 listener 避免重複綁定
+    const newTagInput = tagInput.cloneNode(true);
+    tagInput.parentNode.replaceChild(newTagInput, tagInput);
+    const currentTagInput = body.querySelector(".tag-ghost-input");
+    currentTagInput.addEventListener("keydown", onTagKeydown);
+    // 貼上文字時的防錯（過濾 #）
+    currentTagInput.addEventListener("input", (e) => {
+      if (e.target.value.includes("#")) {
+        e.target.value = e.target.value.replace(/#/g, "");
+      }
+    });
+
+    modal.classList.remove("hidden");
+    titleInput.focus();
+
+    return new Promise((resolve) => {
+      const confirmBtn = refreshBtn(".btn-modal-confirm", "儲存", "btn-modal-confirm");
+      const cancelBtn = refreshBtn(".btn-modal-cancel", "取消", "btn-modal-cancel");
+
+      const closeAction = () => {
+        modal.classList.add("hidden");
+        container.classList.add("hidden");
+        suggestedTagsWrapper.classList.add("hidden");
+        resolve(null);
+      };
+
+      const doSave = async () => {
+        let finalTitle = titleInput.value.trim();
+        
+        // 【新增防呆】：如果使用者把字打在 input 裡卻忘記按 Enter 直接按儲存，自動視為有效標籤
+        let pendingTag = currentTagInput.value.trim().replace(/^#+/, "");
+        if (pendingTag && !tempTags.includes(pendingTag)) {
+          tempTags.push(pendingTag);
+        }
+        
+        // 4. 重組標籤與建立新色碼
+        if (tempTags.length > 0) {
+          const finalTagsWithHash = tempTags.map(t => "#" + t);
+          finalTitle = `${finalTitle} ${finalTagsWithHash.join(" ")}`; 
+          
+          let mapUpdated = false;
+          if (!tagColorMap) tagColorMap = {};
+          
+          finalTagsWithHash.forEach(t => {
+            if (!tagColorMap[t]) {
+              // 透過字串特徵獲得穩定的對應顏色索引
+              let hash = 0;
+              for (let i = 0; i < t.length; i++) {
+                hash = t.charCodeAt(i) + ((hash << 5) - hash);
+              }
+              const index = Math.abs(hash) % TAG_PALETTE.length;
+              tagColorMap[t] = index.toString();
+              mapUpdated = true;
+            }
+          });
+          if (mapUpdated) {
+            chrome.runtime.sendMessage({ action: "setTagColorMap", map: tagColorMap });
+          }
+        }
+
+        if (!finalTitle) return closeAction();
+
+        try {
+          isOurOperation = true;
+          await bm.update(nodeId, { title: finalTitle });
+          await renderFromBookmarks();
+          showToast("更新成功 ✓");
+        } catch (e) {
+          showToast("更新失敗", true);
+        } finally {
+          isOurOperation = false;
+        }
+        closeAction();
+      };
+
+      confirmBtn?.addEventListener("click", doSave);
+      cancelBtn?.addEventListener("click", closeAction);
+    });
+  }
+
   function showDeleteModal(type, nodeId, name) {
     q(".modal-title").textContent = type === "folder" ? "刪除資料夾" : "刪除書籤";
     q(".modal-body").textContent =
@@ -1122,6 +1537,14 @@
   async function init() {
     bindStaticEvents();
     applyStoredPosition();
+    
+    // 透過代理從 storage.sync 取得標籤顏色表
+    tagColorMap = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: "getTagColorMap" }, (res) => {
+        resolve(res?.result || {});
+      });
+    });
+
     await loadRootFolder();
 
     if (rootFolderId) {

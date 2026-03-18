@@ -50,16 +50,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // 支援非同步回應
   }
 
+  // 接收來自 content script 的 chrome.storage.sync 顏色存取
+  if (request.action === "getTagColorMap") {
+    chrome.storage.sync.get(["tagColorMap"], (res) => {
+      sendResponse({ result: res.tagColorMap || {} });
+    });
+    return true; // 異步回應
+  }
+  if (request.action === "setTagColorMap") {
+    chrome.storage.sync.set({ tagColorMap: request.map }, () => {
+      sendResponse({ ok: true });
+    });
+    return true; // 異步回應
+  }
+
   // 接收來自 content script 的 chrome.bookmarks API 請求
   if (request.action === "bm_api") {
     const { method, args } = request;
+    
+    // 防線 1：檢查 API 是否存在 (避免引發未定義錯誤)
+    if (!chrome.bookmarks || !chrome.bookmarks[method]) {
+      sendResponse({ error: `Method ${method} not found in bookmarks API` });
+      return false; // 同步結束
+    }
+    
     try {
-      if (!chrome.bookmarks[method]) {
-        sendResponse({ error: `Method ${method} not found in bookmarks API` });
-        return false;
-      }
-      
+      // 防線 2：嘗試執行 API 呼叫，捕捉 Callback 內的非同步錯誤
       chrome.bookmarks[method](...(args || []), (result) => {
+        // 捕捉 chrome.runtime.lastError (如移動層級錯誤)
         if (chrome.runtime.lastError) {
           sendResponse({ error: chrome.runtime.lastError.message });
         } else {
@@ -68,8 +86,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       return true; // 保持異步通道
     } catch (e) {
+      // 防線 3：捕捉同步層級的參數錯誤 (如必填欄位缺失)
       sendResponse({ error: e.message });
-      return false;
+      return false; // 同步結束
     }
   }
 });
