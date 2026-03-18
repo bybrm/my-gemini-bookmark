@@ -49,4 +49,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // 支援非同步回應
   }
+
+  // 接收來自 content script 的 chrome.bookmarks API 請求
+  if (request.action === "bm_api") {
+    const { method, args } = request;
+    try {
+      if (!chrome.bookmarks[method]) {
+        sendResponse({ error: `Method ${method} not found in bookmarks API` });
+        return false;
+      }
+      
+      chrome.bookmarks[method](...(args || []), (result) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ error: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ result });
+        }
+      });
+      return true; // 保持異步通道
+    } catch (e) {
+      sendResponse({ error: e.message });
+      return false;
+    }
+  }
 });
+
+/* ====================================================
+ * 書籤變更廣播器
+ * ==================================================== */
+// Content script 由於權限限制無法直接監聽 bookmarks 事件，由 Service Worker 統一廣播
+function broadcastBookmarkChange() {
+  chrome.tabs.query({ url: "*://gemini.google.com/*" }, (tabs) => {
+    tabs.forEach((tab) => {
+      chrome.tabs.sendMessage(tab.id, { action: "bm_changed" }, () => {
+        if (chrome.runtime.lastError) {} // 忽略不存在或尚未初始化的分頁
+      });
+    });
+  });
+}
+
+chrome.bookmarks.onCreated.addListener(broadcastBookmarkChange);
+chrome.bookmarks.onRemoved.addListener(broadcastBookmarkChange);
+chrome.bookmarks.onChanged.addListener(broadcastBookmarkChange);
+chrome.bookmarks.onMoved.addListener(broadcastBookmarkChange);

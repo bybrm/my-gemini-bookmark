@@ -147,6 +147,11 @@
   user-select: none;
 }
 .folder-header:hover { background: var(--item-hover); }
+.folder-header.selected {
+  background: rgba(138, 180, 248, 0.15) !important;
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--indent) - 3px) !important; /* Will manually adjust in JS since var isn't used */
+}
 /* 拖放目標 highlight */
 .folder-header.drag-over {
   background: rgba(138,180,248,.18) !important;
@@ -232,6 +237,11 @@
   flex-shrink: 0;
   font-size: 12px;
 }
+.sync-status.selected {
+  background: rgba(138, 180, 248, 0.15) !important;
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
 .sync-icon { font-size: 13px; }
 .sync-folder-name {
   flex: 1; color: var(--accent);
@@ -243,6 +253,11 @@
   color: var(--text-muted); font-size: 11px;
   background: var(--panel-border); padding: 2px 6px;
   border-radius: 10px; white-space: nowrap; flex-shrink: 0;
+}
+.sync-status.drag-over {
+  background: rgba(138,180,248,.18) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* ====== 設定按鈕 ====== */

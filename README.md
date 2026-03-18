@@ -29,27 +29,30 @@
 
 這個專案不是只是做「書籤」，而是圍繞三個核心理念：
 
-* 🔐 **隱私優先**：所有資料只存在本機，不經過任何伺服器
-* 🧩 **結構化管理**：支援多層資料夾，建立自己的知識樹
-* ⚡ **低干擾整合**：不破壞 Gemini UI，不依賴內部 DOM
+* ☁️ **跨裝置同步**：深度整合 Chrome 原生書籤系統，只要登入 Google 帳號，所有分層目錄與書籤自動跨設備同步。
+* 🧩 **結構化管理**：支援多層資料夾，建立自己的知識樹。
+* ⚡ **低干擾整合**：不破壞 Gemini UI，不依賴內部 DOM。
 
 ---
 
-[![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-
+[![Manifest V3](https://imgshields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
 ## 功能特色
 
-* 📁 **多層資料夾**：支援無限層子資料夾巢狀結構
-* 🔖 **一鍵書籤**：自動讀取 Gemini 對話標題與 URL
-* 🖱️ **拖放排序**：資料夾與書籤皆可拖放重新排序或跨資料夾移動
-* 🔍 **即時搜尋**：快速過濾書籤標題與資料夾名稱
-* ↔️ **左右切換**：面板可任意切換到左側或右側
-* 🔒 **零外洩**：所有資料僅儲存於 `chrome.storage.local`
-* 🛡️ **Shadow DOM 隔離**：不注入 Gemini 頁面 DOM，避免版本耦合
+* ☁️ **原生書籤同步 (New)**：背後完全基於 Chrome `bookmarks` API，享有 Google 帳號自動同步的穩定性。
+* 📁 **多層資料夾**：支援無限層子資料夾巢狀結構。
+* 🎯 **一鍵閃電書籤 (New)**：如同電腦檔案管理員，點擊即可選中資料夾。選中後，按下「書籤」按鈕直接存入該目錄，無需任何多餘彈窗對話框！
+* 🖱️ **雙向拖放排序**：
+  * 資料夾與書籤皆可上下自由拖放重排。
+  * 拖曳至其他資料夾可變成子目錄。
+  * **拖曳至頂部「同步狀態列」**即可輕鬆將項目移回最外層根目錄。
+* 🤖 **智慧對話標題擷取**：多層次 Fallback 自動讀取 Gemini 最精確的對話標題。
+* 🔍 **即時搜尋**：快速過濾書籤標題與資料夾名稱。
+* ↔️ **左右切換**：面板可任意切換到左側或右側。
+* 🛡️ **Shadow DOM 隔離**：不注入 Gemini 頁面 DOM，避免版本耦合。
 
 ---
 
@@ -73,15 +76,21 @@
 
 ## 使用說明
 
-| 操作              | 說明                          |
-| --------------- | --------------------------- |
-| 點擊 ✨ 工具列圖示      | 開啟 / 關閉浮動面板                 |
-| **書籤此對話** 按鈕    | 將當前 Gemini 對話加入指定資料夾        |
-| 資料夾的 **＋** 按鈕   | 直接書籤到該資料夾                   |
-| 資料夾的 **📁＋** 按鈕 | 在該資料夾下新增子資料夾                |
-| 拖曳資料夾           | 上/下 30%：重新排序；中間 40%：移入成子資料夾 |
-| 拖曳書籤            | 排序或拖至其他資料夾 header 移動        |
-| **⬅ 移至左側** 按鈕   | 切換面板左右側（偏好設定會記憶）            |
+### 📌 初次設定流程
+第一次開啟面板時，系統會要求您「**選擇同步資料夾**」。
+您可以選擇 Chrome 書籤中現有的資料夾作為知識庫的根目錄，或者直接在底部輸入名稱建立一個新的。選定後，所有操作都會寫入這個資料夾內。
+
+### ⌨️ 操作指南
+
+| 操作 | 說明 |
+| --- | --- |
+| **點擊 ✨ 工具列圖示** | 開啟 / 關閉浮動面板 |
+| **點擊資料夾名稱** | 將其設為「**目前選中**」狀態（高亮顯示），並展開其內容。 |
+| **點擊頂部狀態列** | 取消選中子資料夾，將目標設回「**根目錄**」。 |
+| **書籤此對話 按鈕** | 一鍵將當前對話存入「**目前選中**」的資料夾。若未選中任何項目則預設存入根目錄。 |
+| **資料夾的 ＋ 按鈕** | （滑鼠懸停可見）不管選中狀態為何，強制書籤到該資料夾。 |
+| **拖曳項目** | 上/下 30%：重新排序<br>中間 40%：移入成子資料夾<br>拖至頂部狀態列：移出至根目錄。 |
+| **右上角 ⚙️ 按鈕** | 重新選擇或更換 Chrome 同步根資料夾。 |
 
 ---
 
@@ -89,19 +98,17 @@
 
 ```
 my-gemini-bookmark/
-├── manifest.json    # Manifest V3，最小化權限
-├── background.js    # Service Worker
-├── content.js       # Shadow DOM 面板 + 全部業務邏輯
+├── manifest.json    # Manifest V3
+├── background.js    # Service Worker (處理 bookmarks API 權限與事件廣播)
+├── content.js       # Shadow DOM 面板 + Proxy 代理請求機制
 ├── panel.css        # 面板樣式（注入 Shadow Root）
 └── icons/           # 擴充功能圖示
 ```
 
-**核心技術：**
-
+**核心技術點：**
+* **Chrome Bookmarks API Bridge**：由於 MV3 Content Script 無法直接操作書籤 API，本專案實作了 Proxy 代理機制，由 `content.js` 發送動作，交由 `background.js` 執行並同時廣播事件，保持多個分頁狀態即時同步。
 * Chrome Extension Manifest V3
-* Shadow DOM（closed mode）隔離
-* HTML5 Drag and Drop API
-* `chrome.storage.local`（本機儲存）
+* Shadow DOM 樣式隔離與事件委派 (Event Delegation)
 
 ---
 
@@ -109,34 +116,11 @@ my-gemini-bookmark/
 
 | 權限                                    | 用途             |
 | ------------------------------------- | -------------- |
-| `storage`                             | 儲存書籤與資料夾到本機    |
-| `tabs`                                | 讀取當前分頁 URL     |
-| `activeTab`                           | 存取當前 Gemini 分頁 |
-| `host_permissions: gemini.google.com` | 僅在 Gemini 網域啟動 |
-
----
-
-## 本機資料格式
-
-```json
-{
-  "folders": [
-    {
-      "id": "f_xxx",
-      "name": "資料夾名稱",
-      "bookmarks": [
-        {
-          "id": "b_yyy",
-          "title": "對話標題",
-          "url": "https://gemini.google.com/app/...",
-          "addedAt": 1710736914000
-        }
-      ],
-      "children": []
-    }
-  ]
-}
-```
+| `bookmarks`                           | **核心權限**：讀取與寫入 Chrome 書籤，以達到雲端同步。 |
+| `storage`                             | 儲存面板位置、偏好設定與選定的根目錄 ID。    |
+| `tabs`                                | 讀取當前分頁 URL 供背景腳本廣播更新。     |
+| `activeTab`                           | 存取當前 Gemini 分頁以抓取標題。 |
+| `host_permissions: gemini.google.com` | 僅允許在 Gemini 網域中啟動 Content Script。 |
 
 ---
 

@@ -128,6 +128,8 @@
   let rootFolderTitle = "";
   /** @type {Set<string>} 目前展開的節點 ID */
   let expandedNodes = new Set();
+  /** @type {string|null} 目前選中的資料夾 ID */
+  let selectedFolderId = null;
   /** @type {boolean} 面板是否可見 */
   let isPanelVisible = false;
   /** @type {string} 搜尋關鍵字 */
@@ -151,64 +153,25 @@
              .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   /* ====================================================
-   * Chrome Bookmarks API Promise 包裝
+   * Chrome Bookmarks API Bridge (Proxy to background.js)
    * ==================================================== */
-  const bm = {
-    /** 取得某節點的子樹 */
-    getSubTree: (id) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.getSubTree(id, (r) =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(r)
-        )
-      ),
-
-    /** 取得完整書籤樹 */
-    getTree: () => new Promise((res) => chrome.bookmarks.getTree(res)),
-
-    /** 建立資料夾或書籤 */
-    create: (props) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.create(props, (r) =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(r)
-        )
-      ),
-
-    /** 移除單一書籤 */
-    remove: (id) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.remove(id, () =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res()
-        )
-      ),
-
-    /** 移除資料夾（含所有子節點）*/
-    removeTree: (id) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.removeTree(id, () =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res()
-        )
-      ),
-
-    /** 更新標題或 URL */
-    update: (id, changes) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.update(id, changes, (r) =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(r)
-        )
-      ),
-
-    /** 移動節點（排序或換父節點）*/
-    move: (id, dest) =>
-      new Promise((res, rej) =>
-        chrome.bookmarks.move(id, dest, (r) =>
-          chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(r)
-        )
-      ),
-
-    /** 搜尋書籤 */
-    search: (query) =>
-      new Promise((res) => chrome.bookmarks.search(query, res)),
-  };
+  const bm = new Proxy({}, {
+    get: (target, method) => {
+      return (...args) => {
+        return new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ action: "bm_api", method, args }, (response) => {
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            if (response && response.error) {
+              return reject(new Error(response.error));
+            }
+            resolve(response ? response.result : undefined);
+          });
+        });
+      };
+    }
+  });
 
   /* ====================================================
    * 根資料夾管理
@@ -351,8 +314,13 @@
 
       // 更新顯示名稱
       rootFolderTitle = rootNode.title;
-      const syncName = q(".sync-folder-name");
-      if (syncName) syncName.textContent = rootNode.title;
+      const syncStatusEl = q(".sync-status");
+      if (syncStatusEl) {
+        q(".sync-folder-name").textContent = rootNode.title;
+        // 如果選中根目錄 (或預設), 加上 selected
+        if (selectedFolderId === null) selectedFolderId = rootFolderId;
+        syncStatusEl.classList.toggle("selected", selectedFolderId === rootFolderId);
+      }
 
       renderTree(rootNode.children || []);
     } catch (e) {
@@ -432,9 +400,10 @@
     const totalCount = children.length;
     const indent = 10 + depth * 18;
 
+    const isSelected = node.id === selectedFolderId;
     return `
       <div class="folder-item" data-node-id="${node.id}" data-depth="${depth}" draggable="true">
-        <div class="folder-header" data-node-id="${node.id}" style="padding-left:${indent}px">
+        <div class="folder-header ${isSelected ? 'selected' : ''}" data-node-id="${node.id}" style="padding-left:${isSelected ? indent - 3 : indent}px">
           <span class="folder-toggle ${isOpen ? "open" : ""}">▶</span>
           <span class="folder-icon">📁</span>
           <span class="folder-name" title="${esc(node.title)}">${esc(node.title)}</span>
@@ -564,6 +533,7 @@
     try {
       isOurOperation = true;
       expandedNodes.delete(nodeId);
+      if (selectedFolderId === nodeId) selectedFolderId = rootFolderId;
       await bm.removeTree(nodeId);
       await renderFromBookmarks();
       showToast("資料夾已刪除", true);
@@ -595,24 +565,58 @@
    * 取得 Gemini 對話標題（多層 fallback）
    * ==================================================== */
   function getGeminiConversationTitle() {
+    // 1. URL Pathname 側邊欄比對
+    try {
+      const path = window.location.pathname;
+      if (path && path !== "/" && path !== "/app") {
+        const activeLink = document.querySelector(`a[href^="${path}"]`);
+        if (activeLink && activeLink.textContent) {
+          const text = activeLink.textContent.trim();
+          if (text && text.length > 1) return text;
+        }
+      }
+    } catch (_) {}
+
+    // 2. 側邊欄 active 狀態選擇器
     const sidebarSels = [
       '[aria-selected="true"] .conversation-title',
+      '[aria-selected="true"] span[dir="auto"]',
       '[aria-selected="true"] span',
-      '[aria-current="true"] .title',
-      'li[aria-selected="true"]',
+      '[aria-current="page"] span[dir="auto"]',
+      'a[aria-current="page"] span',
+      'li[aria-selected="true"]'
     ];
     for (const sel of sidebarSels) {
       try {
-        const text = document.querySelector(sel)?.textContent?.trim();
-        if (text && text.length > 1 && text.length < 200) return text;
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) { 
+          const text = el.textContent?.trim();
+          if (text && text.length > 1 && text.length < 100) return text;
+        }
       } catch (_) {}
     }
+    
+    // 3. Document Title
     const raw = document.title || "";
-    const cleaned = raw
+    let cleaned = raw
+      .replace(/\s*[-|–—]\s*Google\s*Gemini\s*$/i, "")
       .replace(/\s*[-|–—]\s*Gemini\s*$/i, "")
-      .replace(/^Gemini\s*[-|–—]\s*/i, "")
+      .replace(/^(Google\s*Gemini|Gemini)\s*[-|–—]\s*/i, "")
+      .replace(/^(Google\s*Gemini|Gemini)$/i, "")
       .trim();
-    return cleaned && cleaned !== "Gemini" && cleaned.length > 2 ? cleaned : raw || window.location.href;
+      
+    if (cleaned && cleaned.length > 1) return cleaned;
+
+    // 4. Fallback: 使用者的第一個提問
+    try {
+      const userMsg = document.querySelector('[data-message-author-role="user"], message-content');
+      if (userMsg && userMsg.textContent) {
+        let text = userMsg.textContent.trim();
+        if (text.length > 0) return text.length > 30 ? text.substring(0, 30) + '...' : text;
+      }
+    } catch (_) {}
+
+    return raw || "未命名對話 (" + new Date().toLocaleString() + ")";
   }
 
   /* ====================================================
@@ -667,14 +671,19 @@
             expandedNodes.add(nodeId);
           } else if (dragState.type === "folder") {
             if (ratio < 0.3 || ratio > 0.7) {
-              // 同層排序：移到目標資料夾前/後
+              // 跨層或同層排序：移到目標資料夾前/後
               const targetItem = header.closest(".folder-item");
               const siblings = [...targetItem.parentElement.querySelectorAll(":scope > .folder-item")];
               const targetIdx = siblings.indexOf(targetItem);
-              const srcItem = shadow.querySelector(`.folder-item[data-node-id="${dragState.id}"]`);
-              if (srcItem?.parentElement === targetItem.parentElement) {
-                await bm.move(dragState.id, { index: ratio < 0.3 ? targetIdx : targetIdx + 1 });
-              }
+              
+              // 動態取得目標的 parentId (如果是根目錄則用 rootFolderId)
+              const parentFolderItem = targetItem.parentElement.closest(".folder-item");
+              const targetParentId = parentFolderItem ? parentFolderItem.dataset.nodeId : rootFolderId;
+
+              await bm.move(dragState.id, { 
+                parentId: targetParentId,
+                index: ratio < 0.3 ? targetIdx : targetIdx + 1 
+              });
             } else {
               // 移入成為子資料夾
               await bm.move(dragState.id, { parentId: nodeId });
@@ -745,6 +754,36 @@
         }
       });
     });
+
+    // === 同步狀態列 (根目錄) 拖放 ===
+    const syncStatus = shadow.querySelector(".sync-status");
+    syncStatus?.addEventListener("dragover", (e) => {
+      if (!dragState) return;
+      e.preventDefault(); e.stopPropagation();
+      clearDragFeedback("folders");
+      syncStatus.classList.add("drag-over");
+    });
+    
+    syncStatus?.addEventListener("dragleave", () => {
+      syncStatus.classList.remove("drag-over");
+    });
+    
+    syncStatus?.addEventListener("drop", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      syncStatus.classList.remove("drag-over");
+      if (!dragState || dragState.id === rootFolderId) return;
+      
+      try {
+        isOurOperation = true;
+        await bm.move(dragState.id, { parentId: rootFolderId });
+        await renderFromBookmarks();
+      } catch (err) {
+        console.error("[Gemini精靈] 移至根目錄失敗:", err);
+      } finally {
+        isOurOperation = false;
+        dragState = null;
+      }
+    });
   }
 
   function clearDragFeedback(type) {
@@ -760,9 +799,15 @@
    * 靜態事件（初始化一次）
    * ==================================================== */
   function bindStaticEvents() {
-    q(".btn-close")?.addEventListener("click", closePanel);
-    q(".btn-position")?.addEventListener("click", togglePosition);
-    q(".btn-settings")?.addEventListener("click", showSetupPage);
+    /**
+     * 使用事件委派（event delegation）統一處理 header 所有按鈕點擊
+     * 比個別 querySelector 綁定更穩定，不受 DOM 渲染時序影響
+     */
+    q(".panel-root")?.addEventListener("click", (e) => {
+      if (e.target.closest(".btn-settings")) showSetupPage();
+      if (e.target.closest(".btn-close"))    closePanel();
+      if (e.target.closest(".btn-position")) togglePosition();
+    });
   }
 
   /** 主面板動態事件（showMainPanel 後呼叫，避免重複綁定用 clone）*/
@@ -793,38 +838,38 @@
     oldQuick.parentNode.replaceChild(quickBtn, oldQuick);
     quickBtn.addEventListener("click", async () => {
       if (!rootFolderId) { showToast("請先選擇同步資料夾", true); return; }
-      // 取得所有資料夾的扁平清單供選擇
-      const results = await bm.getSubTree(rootFolderId);
-      const allFolders = [];
-      const flatten = (nodes, prefix = "") => {
-        nodes.forEach((n) => {
-          if (!n.url) {
-            const label = prefix ? `${prefix} › ${n.title}` : n.title;
-            allFolders.push({ id: n.id, name: label });
-            flatten(n.children || [], label);
-          }
-        });
-      };
-      allFolders.push({ id: rootFolderId, name: results[0]?.title || "根目錄" });
-      flatten(results[0]?.children || []);
-
-      if (allFolders.length === 1) {
-        bookmarkCurrentTab(allFolders[0].id);
-      } else {
-        showFolderPicker(allFolders);
-      }
+      
+      const targetFolderId = selectedFolderId || rootFolderId;
+      bookmarkCurrentTab(targetFolderId);
     });
+
+    // 點擊同步狀態列 -> 選擇根目錄
+    const syncStatus = q(".sync-status");
+    if (syncStatus) {
+      const oldSync = syncStatus.cloneNode(true);
+      syncStatus.parentNode.replaceChild(oldSync, syncStatus);
+      oldSync.addEventListener("click", () => {
+        selectedFolderId = rootFolderId;
+        renderFromBookmarks();
+      });
+    }
   }
 
   /** 動態事件（每次 renderTree 後呼叫）*/
   function bindDynamicEvents() {
-    // 展開/收合
+    // 點擊資料夾 (選取 + 展開/收合)
     shadow.querySelectorAll(".folder-header").forEach((header) => {
       header.addEventListener("click", (e) => {
         if (e.target.closest(".folder-actions")) return;
         const id = header.dataset.nodeId;
         if (!id) return;
-        expandedNodes.has(id) ? expandedNodes.delete(id) : expandedNodes.add(id);
+        
+        if (e.target.classList.contains("folder-toggle")) {
+          expandedNodes.has(id) ? expandedNodes.delete(id) : expandedNodes.add(id);
+        } else {
+          selectedFolderId = id;
+          expandedNodes.add(id);
+        }
         renderFromBookmarks();
       });
     });
@@ -1055,30 +1100,19 @@
   }
 
   /* ====================================================
-   * 監聽書籤變更（跨裝置同步反應）
-   * ==================================================== */
-
-  /**
-   * 監聽 Chrome 書籤的任何變更
-   * 若不是本擴充功能自己觸發的（isOurOperation=false），
-   * 且面板當下可見，則自動刷新
-   */
-  function listenForBookmarkChanges() {
-    const refresh = () => {
-      if (isOurOperation || !rootFolderId || !isPanelVisible) return;
-      renderFromBookmarks();
-    };
-    chrome.bookmarks.onCreated.addListener(refresh);
-    chrome.bookmarks.onRemoved.addListener(refresh);
-    chrome.bookmarks.onChanged.addListener(refresh);
-    chrome.bookmarks.onMoved.addListener(refresh);
-  }
-
-  /* ====================================================
    * 訊息監聽（來自 background.js）
    * ==================================================== */
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "toggle") { togglePanel(); sendResponse({ ok: true }); }
+    if (request.action === "toggle") { 
+      togglePanel(); 
+      sendResponse({ ok: true }); 
+    }
+    
+    if (request.action === "bm_changed") {
+      if (!isOurOperation && rootFolderId && isPanelVisible) {
+        renderFromBookmarks();
+      }
+    }
     return true;
   });
 
@@ -1095,8 +1129,6 @@
     } else {
       await showSetupPage();
     }
-
-    listenForBookmarkChanges();
   }
 
   init();
