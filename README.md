@@ -37,11 +37,6 @@
 
 ---
 
-[![Manifest V3](https://imgshields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
----
-
 ## 功能特色
 
 * ☁️ **原生書籤同步**：背後完全基於 Chrome `bookmarks` API，享有 Google 帳號自動同步的穩定性。
