@@ -455,14 +455,16 @@
 }
 
 .bookmark-actions {
-  display: none;
+  display: flex;
   gap: 2px;
   align-items: center;
   flex-shrink: 0;
+  opacity: 0.25;
+  transition: opacity 0.2s;
 }
 
 .bookmark-item:hover .bookmark-actions {
-  display: flex;
+  opacity: 1;
 }
 
 /* ====== 底部工具列 ====== */

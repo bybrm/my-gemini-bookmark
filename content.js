@@ -635,7 +635,7 @@
           ${tagsHtml}
         </div>
         <div class="bookmark-actions" style="margin-top:2px;">
-          <button class="btn-icon btn-edit-bookmark" title="編輯標題與標籤">✏️</button>
+          <button class="btn-icon btn-edit-bookmark" data-edit-trigger title="點此或雙擊標題編輯">✏️</button>
           <button class="btn-icon danger btn-delete-bookmark" title="刪除">✕</button>
         </div>
       </div>`;
@@ -759,20 +759,41 @@
    * 取得 Gemini 對話標題（多層 fallback）
    * ==================================================== */
   function getGeminiConversationTitle() {
-    // 1. URL Pathname 側邊欄比對
+    const path = window.location.pathname;
+
+    // 1. URL ID 尾碼比對（相容 /app/xxx 和 /gem/xxx/yyy）
+    // Gemini 側邊欄 <a href="/app/ID"> 的 href 末段 ID 與 URL 末段相同
     try {
-      const path = window.location.pathname;
-      if (path && path !== "/" && path !== "/app") {
-        const activeLink = document.querySelector(`a[href^="${path}"]`);
-        if (activeLink && activeLink.textContent) {
-          const text = activeLink.textContent.trim();
-          if (text && text.length > 1) return text;
+      const urlId = path.split("/").filter(Boolean).pop();
+      if (urlId && urlId.length > 4) {
+        const link = document.querySelector(`a[href*="${urlId}"]`);
+        if (link) {
+          const text = link.textContent?.trim();
+          if (text && text.length > 1 && text.length < 200) return text;
         }
       }
     } catch (_) {}
 
-    // 2. 側邊欄 active 狀態選擇器
-    const sidebarSels = [
+    // 2. 側邊欄 .selected class（Gemini 新版 DOM，取代舊的 aria-selected）
+    const selectedSels = [
+      "a.selected",
+      "[class*='conversation'][class*='selected']",
+      "nav a.selected",
+      "aside a.selected",
+      "[role='listitem'] a.selected"
+    ];
+    for (const sel of selectedSels) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = el.textContent?.trim();
+          if (text && text.length > 1 && text.length < 200) return text;
+        }
+      } catch (_) {}
+    }
+
+    // 3. 舊版 aria-selected 選擇器（保留相容性）
+    const ariaSels = [
       '[aria-selected="true"] .conversation-title',
       '[aria-selected="true"] span[dir="auto"]',
       '[aria-selected="true"] span',
@@ -780,33 +801,32 @@
       'a[aria-current="page"] span',
       'li[aria-selected="true"]'
     ];
-    for (const sel of sidebarSels) {
+    for (const sel of ariaSels) {
       try {
         const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null) { 
+        if (el && el.offsetParent !== null) {
           const text = el.textContent?.trim();
-          if (text && text.length > 1 && text.length < 100) return text;
+          if (text && text.length > 1 && text.length < 200) return text;
         }
       } catch (_) {}
     }
-    
-    // 3. Document Title
+
+    // 4. Document Title 清理
     const raw = document.title || "";
-    let cleaned = raw
+    const cleaned = raw
       .replace(/\s*[-|–—]\s*Google\s*Gemini\s*$/i, "")
       .replace(/\s*[-|–—]\s*Gemini\s*$/i, "")
       .replace(/^(Google\s*Gemini|Gemini)\s*[-|–—]\s*/i, "")
       .replace(/^(Google\s*Gemini|Gemini)$/i, "")
       .trim();
-      
     if (cleaned && cleaned.length > 1) return cleaned;
 
-    // 4. Fallback: 使用者的第一個提問
+    // 5. Fallback: 使用者的第一個提問（截取前50字）
     try {
       const userMsg = document.querySelector('[data-message-author-role="user"], message-content');
       if (userMsg && userMsg.textContent) {
-        let text = userMsg.textContent.trim();
-        if (text.length > 0) return text.length > 30 ? text.substring(0, 30) + '...' : text;
+        const text = userMsg.textContent.trim();
+        if (text.length > 0) return text.length > 50 ? text.substring(0, 50) + "…" : text;
       }
     } catch (_) {}
 
@@ -1051,14 +1071,25 @@
 
   /** 動態事件（每次 renderTree 後呼叫）*/
   function bindDynamicEvents() {
-    // 編輯書籤事件
+    // 編輯書籤事件（點擊 ✏️ 按鈕 或 雙擊標題）
+    const openEditForItem = (item) => {
+      const id = item?.dataset.nodeId;
+      const rawTitle = item?.dataset.rawTitle;
+      if (id) showEditBookmarkModal(id, rawTitle || "");
+    };
+
     shadow.querySelectorAll(".btn-edit-bookmark").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const item = btn.closest(".bookmark-item");
-        const id = item.dataset.nodeId;
-        const rawTitle = item.dataset.rawTitle;
-        if (id) showEditBookmarkModal(id, rawTitle || "");
+        openEditForItem(btn.closest(".bookmark-item"));
+      });
+    });
+
+    // 雙擊書籤標題直接開啟編輯（更直覺的 UX）
+    shadow.querySelectorAll(".bookmark-item .bookmark-title").forEach((titleEl) => {
+      titleEl.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        openEditForItem(titleEl.closest(".bookmark-item"));
       });
     });
 
